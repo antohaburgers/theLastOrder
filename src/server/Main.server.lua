@@ -211,27 +211,36 @@ local function spawnBot(team: string, slot: number)
     end)
 end
 
+local playerIndex = 0
+local function registerPlayer(player: Player)
+    playerIndex += 1
+    local team = (playerIndex % 2 == 1) and Config.HUMANS or Config.MACHINES
+    player:SetAttribute("TLOTeam", team)
+    local function onCharacter(character: Model)
+        character:SetAttribute("TLOTeam", team)
+        local root = character:WaitForChild("HumanoidRootPart", 10)
+        if root and root:IsA("BasePart") then
+            task.wait(0.1)
+            if character.Parent then
+                character:PivotTo(CFrame.new(Config.BasePositions[team] + Vector3.new(0, 5, 0)))
+            end
+        end
+    end
+    player.CharacterAdded:Connect(onCharacter)
+    if player.Character then task.spawn(onCharacter, player.Character) end
+end
+Players.PlayerAdded:Connect(registerPlayer)
+for _, existingPlayer in ipairs(Players:GetPlayers()) do
+    task.spawn(registerPlayer, existingPlayer)
+end
+Players.PlayerRemoving:Connect(function(player) playerShotTime[player] = nil end)
+
+-- PlayerAdded must be connected before yielding while generating NPC rigs.
 for _, team in ipairs({Config.HUMANS, Config.MACHINES}) do
     for slot = 1, Config.BotsPerTeam do
         spawnBot(team, slot)
     end
 end
-
-local playerIndex = 0
-Players.PlayerAdded:Connect(function(player)
-    playerIndex += 1
-    local team = (playerIndex % 2 == 1) and Config.HUMANS or Config.MACHINES
-    player:SetAttribute("TLOTeam", team)
-    player.CharacterAdded:Connect(function(character)
-        character:SetAttribute("TLOTeam", team)
-        local root = character:WaitForChild("HumanoidRootPart", 10)
-        if root and root:IsA("BasePart") then
-            task.wait(0.1)
-            character:PivotTo(CFrame.new(Config.BasePositions[team] + Vector3.new(0, 5, 0)))
-        end
-    end)
-end)
-Players.PlayerRemoving:Connect(function(player) playerShotTime[player] = nil end)
 
 local capture = 0 -- -100 Machines; +100 Humans
 local lastCapture = os.clock()
