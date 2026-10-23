@@ -4,6 +4,15 @@ A Roblox tactical squad shooter prototype. **Humans vs Machines**, deliberate co
 
 > **Prototype 0.1:** temporary R15 characters and an auto-generated arena. No purchased/free Toolbox models, no untrusted scripts, and no published Roblox place required to edit the code.
 
+## GitHub Actions build and Roblox publishing
+
+Commits to `main` now trigger an automated Rojo build with a downloadable
+`TheLastOrder.rbxlx` artifact. Roblox API publishing is prepared but
+**not configured or performed** until THE LAST ORDER has its own Roblox
+Universe/Place IDs and repository-scoped API key. Follow
+[`docs/FIRST_PUBLISH.md`](docs/FIRST_PUBLISH.md). Auto-publishing stays OFF
+unless deliberately enabled after initial testing.
+
 ## Run in Roblox Studio
 
 1. Create a new **Baseplate** experience in Roblox Studio (you can do this later).

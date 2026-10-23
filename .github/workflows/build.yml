@@ -1,0 +1,55 @@
+name: THE LAST ORDER — Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rojo 7.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            -o rojo.zip \
+            https://github.com/rojo-rbx/rojo/releases/download/v7.7.1/rojo-7.7.1-linux-x86_64.zip
+          mkdir -p tools
+          unzip -o rojo.zip -d tools
+          chmod +x tools/rojo
+
+      - name: Compile Luau scripts
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            -o luau.zip \
+            https://github.com/luau-lang/luau/releases/download/0.742/luau-ubuntu.zip
+          mkdir -p luau-tools
+          unzip -o luau.zip -d luau-tools
+          chmod +x luau-tools/luau-compile
+          find src -name '*.lua' -print0 | xargs -0 -r -n1 ./luau-tools/luau-compile >/dev/null
+
+      - name: Build complete place file
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          ./tools/rojo build default.project.json -o dist/TheLastOrder.rbxlx
+          test -s dist/TheLastOrder.rbxlx
+
+      - name: Save Studio-ready place
+        uses: actions/upload-artifact@v4
+        with:
+          name: TheLastOrder-place
+          path: dist/TheLastOrder.rbxlx
+          if-no-files-found: error

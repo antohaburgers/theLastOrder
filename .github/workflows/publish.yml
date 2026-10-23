@@ -1,0 +1,98 @@
+name: THE LAST ORDER — Publish to Roblox
+
+# First create/publish the Roblox experience in Studio once, then set
+# separate repository variables/secrets as documented in docs/FIRST_PUBLISH.md.
+# Autoship is OFF until ROBLOX_AUTO_PUBLISH=true (or a build commit has [publish]).
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["THE LAST ORDER — Build"]
+    types: [completed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-the-last-order
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (
+        github.event_name == 'workflow_run' &&
+        github.event.workflow_run.event == 'push' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.conclusion == 'success' &&
+        (
+          vars.ROBLOX_AUTO_PUBLISH == 'true' ||
+          contains(github.event.workflow_run.head_commit.message, '[publish]')
+        )
+      )
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out validated source commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Verify publish configuration
+        shell: bash
+        env:
+          ROBLOX_UNIVERSE_ID: ${{ vars.ROBLOX_UNIVERSE_ID }}
+          ROBLOX_PLACE_ID: ${{ vars.ROBLOX_PLACE_ID }}
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+        run: |
+          set -euo pipefail
+          test -n "$ROBLOX_UNIVERSE_ID" || { echo "::error::Missing ROBLOX_UNIVERSE_ID repository variable"; exit 1; }
+          test -n "$ROBLOX_PLACE_ID" || { echo "::error::Missing ROBLOX_PLACE_ID repository variable"; exit 1; }
+          test -n "$ROBLOX_API_KEY" || { echo "::error::Missing ROBLOX_API_KEY repository secret"; exit 1; }
+          [[ "$ROBLOX_UNIVERSE_ID" =~ ^[0-9]+$ ]] || { echo "::error::Universe ID must be numeric"; exit 1; }
+          [[ "$ROBLOX_PLACE_ID" =~ ^[0-9]+$ ]] || { echo "::error::Place ID must be numeric"; exit 1; }
+
+      - name: Install Rojo 7.7.1
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error \
+            -o rojo.zip \
+            https://github.com/rojo-rbx/rojo/releases/download/v7.7.1/rojo-7.7.1-linux-x86_64.zip
+          mkdir -p tools
+          unzip -o rojo.zip -d tools
+          chmod +x tools/rojo
+
+      - name: Build release
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./tools/rojo build default.project.json -o TheLastOrder.rbxlx
+          test -s TheLastOrder.rbxlx
+
+      - name: Publish existing Roblox place through Creator API
+        shell: bash
+        env:
+          ROBLOX_UNIVERSE_ID: ${{ vars.ROBLOX_UNIVERSE_ID }}
+          ROBLOX_PLACE_ID: ${{ vars.ROBLOX_PLACE_ID }}
+          ROBLOX_API_KEY: ${{ secrets.ROBLOX_API_KEY }}
+        run: |
+          set -euo pipefail
+          curl --fail-with-body --location --silent --show-error \
+            --retry 3 --retry-delay 2 \
+            --request POST \
+            "https://apis.roblox.com/universes/v1/${ROBLOX_UNIVERSE_ID}/places/${ROBLOX_PLACE_ID}/versions?versionType=Published" \
+            --header "x-api-key: ${ROBLOX_API_KEY}" \
+            --header "Content-Type: application/xml" \
+            --data-binary @TheLastOrder.rbxlx \
+            --output publish-result.json
+          python3 - <<'PY'
+          import json
+          with open("publish-result.json", encoding="utf-8") as f:
+              published = json.load(f)
+          if not isinstance(published.get("versionNumber"), int):
+              raise SystemExit("No confirmed Roblox versionNumber in response")
+          print("THE LAST ORDER published version:", published["versionNumber"])
+          PY
+          echo "### THE LAST ORDER published" >> "$GITHUB_STEP_SUMMARY"
+          echo "Roblox game: https://www.roblox.com/games/${ROBLOX_PLACE_ID}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Version: $(python3 -c 'import json; print(json.load(open("publish-result.json"))["versionNumber"])')" >> "$GITHUB_STEP_SUMMARY"
