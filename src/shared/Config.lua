@@ -18,6 +18,11 @@ Config.BotDamage = 12
 Config.PlayerFireInterval = 0.38
 Config.PlayerDamage = 18
 Config.MaxWeaponRange = 125
+-- Replaces instant hit-scan. The previous ray had no finite speed; 180 is the
+-- starting reference and 0.60 is the requested speed scale (108 studs/sec).
+Config.ProjectileBaseSpeed = 180
+Config.ProjectileSpeedScale = 0.60
+Config.ProjectileSpeed = Config.ProjectileBaseSpeed * Config.ProjectileSpeedScale
 Config.CaptureRadius = 16
 Config.CapturePointsPerSecond = 5
 Config.PlayerCaptureWeight = 2.5

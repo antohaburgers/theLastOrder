@@ -24,6 +24,19 @@ A simple arena, blue HUMAN bots, red MACHINE bots, and a central capture zone sp
 - `src/client/Combat.client.lua` — tactical/FPS camera, test input and combat effects
 - `docs/PROTOTYPE_0_1.md` — roadmap, testing checklist and known constraints
 
+## Projectile combat (2026-10-23)
+
+Shots are now server-simulated projectiles instead of instant hitscan rays. Default
+speed is **108 studs/s** (180 baseline × **0.60**), adjustable in
+`src/shared/Config.lua`. Both player and NPC weapons share swept collision,
+so movement/cover can avoid a hit before the bullet arrives. Clients draw
+team-colored glowing bullets, short trails, muzzle flashes and impact sparks;
+only the server applies damage. Refer to
+`docs/PROJECTILE_COMBAT_0_2.md` for Studio validation.
+
+**Status:** committed to the repository; Roblox Studio multiplayer/device
+smoke tests and live place publishing have **not** been performed here.
+
 ## Design direction
 
 Core game: 1v1 / 2v2 / 3v3 and PvE (future), up to ten personally owned units per player, tactical pace, central objective B, temporary air support (helicopter vs drones), three maps (forest/city/warehouse), stylized factions, cosmetic monetization. No drivable vehicles.

@@ -5,6 +5,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Debris = game:GetService("Debris")
 local PathfindingService = game:GetService("PathfindingService")
 local PhysicsService = game:GetService("PhysicsService")
+local RunService = game:GetService("RunService")
 
 local Config = require(ReplicatedStorage:WaitForChild("Shared"):WaitForChild("Config"))
 local Arena = require(script.Parent:WaitForChild("Arena"))
@@ -54,30 +55,87 @@ local function characterTeam(character: Model): string?
     return nil
 end
 
-local function fireRay(owner: Model, startPosition: Vector3, direction: Vector3, damage: number): boolean
+-- Server-authoritative moving bullets. A swept raycast every Heartbeat prevents
+-- tunnelling through thin cover/characters without granting instant damage.
+type Projectile = {
+    Id: number,
+    Owner: Model,
+    Team: string,
+    Position: Vector3,
+    Direction: Vector3,
+    Travelled: number,
+    Damage: number,
+}
+local projectiles: {Projectile} = {}
+local nextProjectileId = 0
+
+local function launchProjectile(owner: Model, startPosition: Vector3, direction: Vector3, damage: number): boolean
     local ownTeam = characterTeam(owner)
     if ownTeam == nil or not alive(owner) or direction.Magnitude < 0.01 then
         return false
     end
-    local rayParams = RaycastParams.new()
-    rayParams.FilterType = Enum.RaycastFilterType.Exclude
-    rayParams.FilterDescendantsInstances = {owner}
-    rayParams.IgnoreWater = true
-    local result = workspace:Raycast(startPosition, direction.Unit * Config.MaxWeaponRange, rayParams)
-    local endpoint = startPosition + direction.Unit * Config.MaxWeaponRange
-    if result then
-        endpoint = result.Position
-        local model = result.Instance:FindFirstAncestorOfClass("Model")
-        if model and characterTeam(model) and characterTeam(model) ~= ownTeam then
-            local victim = model:FindFirstChildOfClass("Humanoid")
-            if victim and victim.Health > 0 then
-                victim:TakeDamage(damage)
-            end
-        end
-    end
-    shotVisual:FireAllClients(startPosition, endpoint, Config.TeamColors[ownTeam])
+    nextProjectileId += 1
+    local velocityDirection = direction.Unit
+    table.insert(projectiles, {
+        Id = nextProjectileId,
+        Owner = owner,
+        Team = ownTeam,
+        Position = startPosition,
+        Direction = velocityDirection,
+        Travelled = 0,
+        Damage = damage,
+    })
+    shotVisual:FireAllClients(
+        "spawn", nextProjectileId, startPosition, velocityDirection,
+        Config.ProjectileSpeed, Config.TeamColors[ownTeam], workspace:GetServerTimeNow()
+    )
     return true
 end
+
+RunService.Heartbeat:Connect(function(dt: number)
+    if dt <= 0 then return end
+    for index = #projectiles, 1, -1 do
+        local shot = projectiles[index]
+        local remaining = Config.MaxWeaponRange - shot.Travelled
+        local travel = math.min(remaining, Config.ProjectileSpeed * dt)
+        local remove = travel <= 0
+        if not remove then
+            local params = RaycastParams.new()
+            params.FilterType = Enum.RaycastFilterType.Exclude
+            params.FilterDescendantsInstances = {shot.Owner}
+            params.IgnoreWater = true
+
+            local delta = shot.Direction * travel
+            local hit = workspace:Raycast(shot.Position, delta, params)
+            if hit then
+                local victimModel = hit.Instance:FindFirstAncestorOfClass("Model")
+                local damagedEnemy = false
+                if victimModel and characterTeam(victimModel) ~= nil
+                    and characterTeam(victimModel) ~= shot.Team then
+                    local victim = victimModel:FindFirstChildOfClass("Humanoid")
+                    if victim and victim.Health > 0 then
+                        victim:TakeDamage(shot.Damage)
+                        damagedEnemy = true
+                    end
+                end
+                shotVisual:FireAllClients("impact", shot.Id, hit.Position, hit.Normal, damagedEnemy)
+                remove = true
+            else
+                shot.Position += delta
+                shot.Travelled += travel
+                if shot.Travelled >= Config.MaxWeaponRange - 0.001 then
+                    shotVisual:FireAllClients("expire", shot.Id)
+                    remove = true
+                end
+            end
+        else
+            shotVisual:FireAllClients("expire", shot.Id)
+        end
+        if remove then
+            table.remove(projectiles, index)
+        end
+    end
+end)
 
 local function isFiniteVector(v: Vector3): boolean
     return v.X == v.X and v.Y == v.Y and v.Z == v.Z
@@ -100,7 +158,7 @@ requestFire.OnServerEvent:Connect(function(player: Player, aimPoint: any)
     local direction = aimPoint - startPosition
     if direction.Magnitude < 1 then return end
     playerShotTime[player] = now
-    fireRay(character, startPosition, direction, Config.PlayerDamage)
+    launchProjectile(character, startPosition, direction, Config.PlayerDamage)
 end)
 
 local function nearestEnemy(bot: Bot): (Model?, number)
@@ -300,7 +358,7 @@ task.spawn(function()
                             bot.LastShot = now
                             local origin = bot.Root.Position + Vector3.new(0, 1.5, 0)
                             local aim = enemyRoot.Position + Vector3.new(0, 1.5, 0)
-                            fireRay(bot.Model, origin, aim - origin, Config.BotDamage)
+                            launchProjectile(bot.Model, origin, aim - origin, Config.BotDamage)
                         end
                     end
                 else
